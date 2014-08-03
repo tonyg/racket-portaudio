@@ -52,6 +52,7 @@
 	 pa-start-stream
 	 pa-stop-stream
 	 pa-abort-stream
+	 pa-wait-until-stream-inactive
 	 pa-close-stream
 
 	 pa-stream-stopped?
@@ -133,6 +134,10 @@
 		       error-code
 		       text)))))
 
+(define (die-if-error/void function-name error-code)
+  (die-if-error function-name error-code)
+  (void))
+
 (define _paError (_enum '(paNoError = 0
 			  paNotInitialized = -10000
 			  paUnanticipatedHostError
@@ -204,7 +209,7 @@
 
 (define (pa-stream-parameters->PaStreamParameters p)
   (match-define (pa-stream-parameters d cc sf sl) p)
-  (make-PaStreamParameters d cc sf sl #f))
+  (make-PaStreamParameters d cc sf (ensure-float sl) #f))
 
 (define (ensure-float x)
   (if (inexact? x)
@@ -234,10 +239,10 @@
 					   [currentTime PaTime]
 					   [outputBufferDacTime PaTime]))
 
-;; PaStreamCallbackResult
-(define paContinue 0)
-(define paComplete 1)
-(define paAbort 2)
+(define PaStreamCallbackResult (_enum '(paContinue = 0
+					paComplete = 1
+					paAbort = 2)
+				      _int))
 
 (define PaStreamCallback (_fun #:async-apply (lambda (thunk) (thunk))
 			       _pointer ;; (const) input
@@ -246,7 +251,7 @@
 			       _PaStreamCallbackTimeInfo-pointer
 			       PaStreamCallbackFlags
 			       _pointer ;; userData
-			       -> _int))
+			       -> PaStreamCallbackResult))
 
 (define-pa Pa_OpenStream (_fun (stream : (_ptr o _pointer))
 			       _PaStreamParameters-pointer/null ;; inputParameters
@@ -348,9 +353,10 @@
 ;; Per the PortAudio documentation, we **MUST** call Pa_Terminate
 ;; before exiting. Otherwise, on certain systems, serious resource
 ;; leaks may occur.
-(plumber-add-flush! (current-plumber) (lambda (handle)
-					(log-info "Calling Pa_Terminate")
-					(Pa_Terminate)))
+(void
+ (plumber-add-flush! (current-plumber) (lambda (handle)
+					 (log-info "Calling Pa_Terminate")
+					 (Pa_Terminate))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Main API
@@ -403,29 +409,29 @@
 (define (pa-open-input-stream input-parameters sample-rate frames-per-buffer flags callback)
   (define frame-size (compute-frame-size input-parameters))
   (pa-stream (open-stream (pa-stream-parameters->PaStreamParameters input-parameters)
-			  (make-PaStreamParameters 0 0 'paInt16 0.0 #f)
+			  #f
 			  sample-rate
-			  frames-per-buffer
+			  (or frames-per-buffer paFramesPerBufferUnspecified)
 			  flags
 			  (wrap-input-callback callback frame-size))
 	     input-parameters
 	     #f
 	     sample-rate
-	     frames-per-buffer
+	     (or frames-per-buffer paFramesPerBufferUnspecified)
 	     flags))
 
 (define (pa-open-output-stream output-parameters sample-rate frames-per-buffer flags callback)
   (define frame-size (compute-frame-size output-parameters))
-  (pa-stream (open-stream (make-PaStreamParameters 0 0 'paInt16 0.0 #f)
+  (pa-stream (open-stream #f
 			  (pa-stream-parameters->PaStreamParameters output-parameters)
 			  sample-rate
-			  frames-per-buffer
+			  (or frames-per-buffer paFramesPerBufferUnspecified)
 			  flags
 			  (wrap-output-callback callback frame-size))
 	     #f
 	     output-parameters
 	     sample-rate
-	     frames-per-buffer
+	     (or frames-per-buffer paFramesPerBufferUnspecified)
 	     flags))
 
 (define (pa-open-input-output-stream input-parameters output-parameters sample-rate frames-per-buffer flags callback)
@@ -434,41 +440,55 @@
   (pa-stream (open-stream (pa-stream-parameters->PaStreamParameters input-parameters)
 			  (pa-stream-parameters->PaStreamParameters output-parameters)
 			  sample-rate
-			  frames-per-buffer
+			  (or frames-per-buffer paFramesPerBufferUnspecified)
 			  flags
 			  (wrap-input-output-callback callback input-frame-size output-frame-size))
 	     input-parameters
 	     output-parameters
 	     sample-rate
-	     frames-per-buffer
+	     (or frames-per-buffer paFramesPerBufferUnspecified)
 	     flags))
 
 (define (pa-default-input-stream num-input-channels sample-format sample-rate frames-per-buffer callback)
-  (pa-open-input-stream (pa-stream-parameters (pa-get-default-input-device) num-input-channels sample-format 0)
+  (define i (pa-get-default-input-device-info))
+  (define il (pa-device-info-default-high-input-latency i))
+  (pa-open-input-stream (pa-stream-parameters (pa-get-default-input-device) num-input-channels sample-format il)
 			sample-rate
 			frames-per-buffer
 			0
 			callback))
 
 (define (pa-default-output-stream num-output-channels sample-format sample-rate frames-per-buffer callback)
-  (pa-open-input-stream (pa-stream-parameters (pa-get-default-output-device) num-output-channels sample-format 0)
-			sample-rate
-			frames-per-buffer
-			0
-			callback))
+  (define o (pa-get-default-output-device-info))
+  (define ol (pa-device-info-default-high-output-latency o))
+  (pa-open-output-stream (pa-stream-parameters (pa-get-default-output-device) num-output-channels sample-format ol)
+			 sample-rate
+			 frames-per-buffer
+			 0
+			 callback))
 
 (define (pa-default-input-output-stream num-input-channels num-output-channels sample-format sample-rate frames-per-buffer callback)
-  (pa-open-input-output-stream (pa-stream-parameters (pa-get-default-input-device) num-input-channels sample-format 0)
-			       (pa-stream-parameters (pa-get-default-output-device) num-output-channels sample-format 0)
+  (define i (pa-get-default-input-device-info))
+  (define il (pa-device-info-default-high-input-latency i))
+  (define o (pa-get-default-output-device-info))
+  (define ol (pa-device-info-default-high-output-latency o))
+  (pa-open-input-output-stream (pa-stream-parameters (pa-get-default-input-device) num-input-channels sample-format il)
+			       (pa-stream-parameters (pa-get-default-output-device) num-output-channels sample-format ol)
 			       sample-rate
 			       frames-per-buffer
 			       0
 			       callback))
 
-(define (pa-start-stream s) (die-if-error 'pa-start-stream (Pa_StartStream (pa-stream-pointer s))))
-(define (pa-stop-stream s) (die-if-error 'pa-stop-stream (Pa_StopStream (pa-stream-pointer s))))
-(define (pa-abort-stream s) (die-if-error 'pa-abort-stream (Pa_AbortStream (pa-stream-pointer s))))
-(define (pa-close-stream s) (die-if-error 'pa-close-stream (Pa_CloseStream (pa-stream-pointer s))))
+(define (pa-start-stream s) (die-if-error/void 'pa-start-stream (Pa_StartStream (pa-stream-pointer s))))
+(define (pa-stop-stream s) (die-if-error/void 'pa-stop-stream (Pa_StopStream (pa-stream-pointer s))))
+(define (pa-abort-stream s) (die-if-error/void 'pa-abort-stream (Pa_AbortStream (pa-stream-pointer s))))
+
+(define (pa-wait-until-stream-inactive s)
+  (when (pa-stream-active? s)
+    (sleep 0.1)
+    (pa-wait-until-stream-inactive s)))
+
+(define (pa-close-stream s) (die-if-error/void 'pa-close-stream (Pa_CloseStream (pa-stream-pointer s))))
 
 (define (pa-stream-stopped? stream)
   (equal? 1 (die-if-error 'pa-stream-stopped? (Pa_IsStreamStopped (pa-stream-pointer stream)))))
