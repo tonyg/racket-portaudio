@@ -7,8 +7,8 @@
 (define data (make-bytes (* nsamples 2 2))) ;; two bytes per sample, two channels
 
 (for ((i nsamples))
-  (define lo (if (< i (/ nsamples 2)) #x00 #xff))
-  (define hi (if (< i (/ nsamples 2)) #x80 #x7f))
+  (define lo (if (< i (/ nsamples 2)) #x00 #x00))
+  (define hi (if (< i (/ nsamples 2)) #xff #x01))
   (bytes-set! data (+ (* i 4) 0) lo)
   (bytes-set! data (+ (* i 4) 1) hi)
   (bytes-set! data (+ (* i 4) 2) lo)
