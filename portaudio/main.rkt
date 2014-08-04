@@ -110,7 +110,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Low-level: Loading the libportaudio shared library into the FFI
 
-(define pa-lib (ffi-lib "libportaudio"))
+(define pa-lib (ffi-lib "libportaudio" '("2" #f)))
 
 (define-ffi-definer define-pa pa-lib #:default-make-fail make-not-available)
 
