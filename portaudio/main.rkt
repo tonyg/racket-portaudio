@@ -449,20 +449,28 @@
 	     (or frames-per-buffer paFramesPerBufferUnspecified)
 	     flags))
 
+(define (compute-latency dev-info input? latency-arg)
+  (cond
+   [(number? latency-arg) latency-arg]
+   [(eq? latency-arg 'low) ((if input?
+				pa-device-info-default-low-input-latency
+				pa-device-info-default-low-output-latency) dev-info)]
+   [(eq? latency-arg 'high) ((if input?
+				 pa-device-info-default-high-input-latency
+				 pa-device-info-default-high-output-latency) dev-info)]
+   [else (error 'portaudio "Invalid latency setting: ~a" latency-arg)]))
+
 (define (pa-default-input-stream num-input-channels
 				 sample-format
 				 sample-rate
 				 frames-per-buffer
 				 callback
-				 #:low-latency? [low-latency? #f])
+				 #:latency [latency 'high])
   (define i (pa-get-default-input-device-info))
-  (define il ((if low-latency?
-		  pa-device-info-default-low-input-latency
-		  pa-device-info-default-high-input-latency) i))
   (pa-open-input-stream (pa-stream-parameters (pa-get-default-input-device)
 					      num-input-channels
 					      sample-format
-					      il)
+					      (compute-latency i #t latency))
 			sample-rate
 			frames-per-buffer
 			0
@@ -473,15 +481,12 @@
 				  sample-rate
 				  frames-per-buffer
 				  callback
-				  #:low-latency? [low-latency? #f])
+				  #:latency [latency 'high])
   (define o (pa-get-default-output-device-info))
-  (define ol ((if low-latency?
-		  pa-device-info-default-low-output-latency
-		  pa-device-info-default-high-output-latency) o))
   (pa-open-output-stream (pa-stream-parameters (pa-get-default-output-device)
 					       num-output-channels
 					       sample-format
-					       ol)
+					       (compute-latency o #f latency))
 			 sample-rate
 			 frames-per-buffer
 			 0
@@ -493,23 +498,17 @@
 					sample-rate
 					frames-per-buffer
 					callback
-					#:low-latency? [low-latency? #f])
+					#:latency [latency 'high])
   (define i (pa-get-default-input-device-info))
-  (define il ((if low-latency?
-		  pa-device-info-default-low-input-latency
-		  pa-device-info-default-high-input-latency) i))
   (define o (pa-get-default-output-device-info))
-  (define ol ((if low-latency?
-		  pa-device-info-default-low-output-latency
-		  pa-device-info-default-high-output-latency) o))
   (pa-open-input-output-stream (pa-stream-parameters (pa-get-default-input-device)
 						     num-input-channels
 						     sample-format
-						     il)
+						     (compute-latency i #t latency))
 			       (pa-stream-parameters (pa-get-default-output-device)
 						     num-output-channels
 						     sample-format
-						     ol)
+						     (compute-latency o #f latency))
 			       sample-rate
 			       frames-per-buffer
 			       0
