@@ -105,7 +105,8 @@
 		   output-parameters
 		   sample-rate
 		   frames-per-buffer
-		   flags)) ;; not prefab or transparent
+		   flags
+		   callback)) ;; not prefab or transparent
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Low-level: Loading the libportaudio shared library into the FFI
@@ -408,46 +409,57 @@
 
 (define (pa-open-input-stream input-parameters sample-rate frames-per-buffer flags callback)
   (define frame-size (compute-frame-size input-parameters))
+  (define wrapped-callback (wrap-input-callback callback frame-size))
   (pa-stream (open-stream (pa-stream-parameters->PaStreamParameters input-parameters)
 			  #f
 			  sample-rate
 			  (or frames-per-buffer paFramesPerBufferUnspecified)
 			  flags
-			  (wrap-input-callback callback frame-size))
+			  wrapped-callback)
 	     input-parameters
 	     #f
 	     sample-rate
 	     (or frames-per-buffer paFramesPerBufferUnspecified)
-	     flags))
+	     flags
+	     wrapped-callback))
 
 (define (pa-open-output-stream output-parameters sample-rate frames-per-buffer flags callback)
   (define frame-size (compute-frame-size output-parameters))
+  (define wrapped-callback (wrap-output-callback callback frame-size))
   (pa-stream (open-stream #f
 			  (pa-stream-parameters->PaStreamParameters output-parameters)
 			  sample-rate
 			  (or frames-per-buffer paFramesPerBufferUnspecified)
 			  flags
-			  (wrap-output-callback callback frame-size))
+			  wrapped-callback)
 	     #f
 	     output-parameters
 	     sample-rate
 	     (or frames-per-buffer paFramesPerBufferUnspecified)
-	     flags))
+	     flags
+	     wrapped-callback))
 
-(define (pa-open-input-output-stream input-parameters output-parameters sample-rate frames-per-buffer flags callback)
+(define (pa-open-input-output-stream input-parameters
+				     output-parameters
+				     sample-rate
+				     frames-per-buffer
+				     flags
+				     callback)
   (define input-frame-size (compute-frame-size input-parameters))
   (define output-frame-size (compute-frame-size output-parameters))
+  (define wrapped-callback (wrap-input-output-callback callback input-frame-size output-frame-size))
   (pa-stream (open-stream (pa-stream-parameters->PaStreamParameters input-parameters)
 			  (pa-stream-parameters->PaStreamParameters output-parameters)
 			  sample-rate
 			  (or frames-per-buffer paFramesPerBufferUnspecified)
 			  flags
-			  (wrap-input-output-callback callback input-frame-size output-frame-size))
+			  wrapped-callback)
 	     input-parameters
 	     output-parameters
 	     sample-rate
 	     (or frames-per-buffer paFramesPerBufferUnspecified)
-	     flags))
+	     flags
+	     wrapped-callback))
 
 (define (compute-latency dev-info input? latency-arg)
   (cond
